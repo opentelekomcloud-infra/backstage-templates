@@ -1,0 +1,83 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: helpcenter-service
+  title: HelpCenter Service
+  description: scaffolder hc service repo template
+spec:
+  owner: ecosystem
+  type: doc
+
+  parameters:
+    - title: Repository information
+      required:
+        - connection
+        - org_name
+        - repo_name
+      properties:
+        connection:
+          title: Git host
+          type: string
+          description: Zuul to git host connection name
+          default: github
+          enum:
+            - github.com
+            - gitea.eco.tsi-dev.otc-service.com
+          ui:autofocus: true
+        org_name:
+          title: Organization name
+          type: string
+          description: Name of the git organization (username) owning the repository
+        repo_name:
+          title: Repo Name
+          type: string
+          description: Unique name of the service
+        description:
+          title: Repository description
+          type: string
+          description: Repository description
+        zuul_jobs_template:
+          title: Zuul jobs template name
+          type: string
+          description: Default Zuul jobs template
+          default: helpcenter-base-jobs
+  # here's the steps that are executed in series in the scaffolder backend
+  steps:
+    - id: fetch-base
+      name: Fetch Base
+      action: fetch:template
+      input:
+        url: ./skeleton
+        cookiecutterCompat: true
+        values:
+          repo_name: ${{ parameters.repo_name }}
+          git_fqdn: ${{ parameters.connection }}/${{ parameters.org_name }}/${{ parameters.repo_name }}
+          repo_group: ${{ parameters.organization }}
+          project_short_description: ${{ parameters.description }}
+          zuul_jobs_template: ${{ parameters.zuul_jobs_template }}
+
+    - id: publish_gt
+      name: Publishing to the Source Code Repository
+      if: ${{ parameters.connection === "gitea.eco.tsi-dev.otc-service.com" }}
+      action: publish:gitea
+      input:
+        description: ${{ parameters.description }}
+        repoUrl: gitea.eco.tsi-dev.otc-service.com?owner=${{ parameters.org_name }}&repo=${{ parameters.repo_name }}
+        defaultBranch: main
+
+    - id: publish_gh
+      name: Publishing to the Source Code Repository
+      if: ${{ parameters.connection === "github.com" }}
+      action: publish:github
+      input:
+        description: ${{ parameters.description }}
+        repoUrl: github.com?owner=${{ parameters.org_name }}&repo=${{ parameters.repo_name }}
+        defaultBranch: main
+        repoVisibility: "public"
+
+    - id: debug
+      name: log
+      action: debug:log
+      input:
+        message: "content"
+        listWorkspace: true

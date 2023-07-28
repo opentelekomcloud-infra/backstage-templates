@@ -1,0 +1,11 @@
+- project:
+    merge-mode: squash-merge
+    default-branch: main
+    templates:
+      - {{ cookiecutter.zuul_jobs_template }}
+    check:
+      jobs:
+        - noop
+    gate:
+      jobs:
+        - noop

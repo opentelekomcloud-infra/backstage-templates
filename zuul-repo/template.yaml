@@ -1,0 +1,206 @@
+---
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: zuul-repo
+  title: "Action: Register repository in Zuul"
+  description: |
+    - Open PR to add repository into the Zuul tenant config
+    - Open PR with gitstyring changes for the repository
+spec:
+  owner: ecosystem
+  type: zuul-config
+
+  # these are the steps which are rendered in the frontend with the form input
+  parameters:
+    - title: Repository information
+      required:
+        - connection
+        - org_name
+        - repo_name
+        - tenant
+      properties:
+        connection:
+          title: Git host
+          type: string
+          description: Zuul to git host connection name
+          default: github
+          enum:
+            - github
+            - gitea
+            - opendev
+            - gitlab
+          enumNames:
+            - github.com
+            - gitea.eco.tsi-dev.otc-service.com
+            - opendev.org
+            - git.tsi-dev.otc-service.com
+        org_name:
+          title: Organization name
+          type: string
+          description: Name of the git organization (username) owning the repository
+        repo_name:
+          title: Repo Name
+          type: string
+          description: Unique name of the service
+        tenant:
+          title: Zuul tenant
+          type: string
+          description: Zuul tenant
+          default: eco
+          enum:
+            - eco
+            - gl
+
+    - title: Repository configuration
+      properties:
+        repo_description:
+          title: description
+          description: Repository description
+          type: string
+        repo_rw_team:
+          title: team
+          description: Git team with write permissions
+          type: string
+
+  # here's the steps that are executed in series in the scaffolder backend
+  steps:
+    - id: fetch-zuul-config
+      name: Fetch Zuul config repo
+      action: fetch:plain
+      input:
+        url: https://github.com/opentelekomcloud-infra/zuul-config
+        target_path: zuul-config
+
+    - id: gen-zuul-config-repo
+      name: Generate project config entry file
+      action: roadiehq:utils:fs:write
+      input:
+        path: "zuul-config/zuul/tenants/${{ parameters.tenant }}/sources/${{ parameters.connection }}/untrusted-projects/${{ parameters.org_name }}/${{ parameters.repo_name }}.yaml"
+        content: |
+          ---
+
+    - id: gh-zuul-config-pull-request
+      name: make a pr with the new config
+      action: publish:github:pull-request
+      input:
+        repoUrl: "github.com?repo=zuul-config&owner=opentelekomcloud-infra"
+        branchName: "proj-${{ parameters.org_name }}-${{ parameters.repo_name }}"
+        title: "chore: register ${{ parameters.tenant }}:${{ parameters.org_name}}/${{ parameters.repo_name}}"
+        description: "Add ${{ parameters.org_name}}/${{ parameters.repo_name}} to zuul config"
+        sourcePath: "zuul-config"
+
+    - id: fetch-gitstyring-gh
+      name: Fetch Gitstyring (GitHub)
+      if: ${{ parameters.connection === "github" }}
+      action: fetch:plain
+      input:
+        url: https://github.com/opentelekomcloud-infra/gitstyring
+        target_path: gitstyring-gh
+
+    - id: gen-gitstyring-gh
+      name: Generate gitstyring config for GH repo
+      if: ${{ parameters.connection === "github" }}
+      action: roadiehq:utils:fs:write
+      input:
+        path: "gitstyring-gh/data/github/orgs/${{ parameters.org_name }}/repositories/${{ parameters.repo_name }}.yml"
+        content: |
+          ---
+          ${{ parameters.repo_name }}:
+            allow_merge_commit: false
+            allow_rebase_merge: false
+            allow_squash_merge: true
+            allow_update_branch: true
+            archived: false
+            branch_protections:
+            - branch: main
+              template: zuul
+            default_branch: main
+            delete_branch_on_merge: true
+            description: ${{ parameters.repo_description }}
+            has_issues: true
+            has_projects: false
+            has_wiki: false
+            homepage: null
+            teams:
+            - permission: push
+              slug: ${{ parameters.repo_rw_team }}
+
+    - id: gen-gitstyring-pull-request-gh
+      name: make a pr with the new config
+      if: ${{ parameters.connection === "github" }}
+      action: publish:github:pull-request
+      input:
+        repoUrl: "github.com?repo=gitstyring&owner=opentelekomcloud-infra"
+        branchName: "proj-${{ parameters.org_name }}-${{ parameters.repo_name }}"
+        title: "chore: register ${{ parameters.tenant }}:${{ parameters.org_name}}/${{ parameters.repo_name}}"
+        description: "Add ${{ parameters.org_name}}/${{ parameters.repo_name}} repository configuration"
+        sourcePath: "gitstyring-gh"
+
+    - id: clone-gitstyring-pull-request-gt
+      name: Clone gitstyring gitea repository
+      if: ${{ parameters.connection === "gitea" }}
+      action: gitea:clone
+      input:
+        repoUrl: "gitea.eco.tsi-dev.otc-service.com?repo=gitstyring&owner=infra"
+        workingDirectory: gitstyring-gt
+        branchName: main
+
+    - id: gen-gitstyring-gt
+      name: Generate gitstyring config for gitea repo
+      if: ${{ parameters.connection === "gitea" }}
+      action: roadiehq:utils:fs:write
+      input:
+        path: "gitstyring-gt/data/gitea/orgs/${{ parameters.org_name }}/repositories/${{ parameters.repo_name }}.yml"
+        content: |
+          ---
+          ${{ parameters.repo_name }}:
+            allow_merge_commit: false
+            allow_rebase_merge: false
+            allow_squash_merge: true
+            archived: false
+            branch_protections:
+            - approvals_whitelist_teams:
+              - ${{ parameters.repo_rw_team }}
+              block_on_rejected_reviews: true
+              branch_name: main
+              dismiss_stale_approvals: true
+              enable_approvals_whitelist: true
+              enable_merge_whitelist: true
+              enable_push: false
+              merge_whitelist_usernames:
+              - zuul
+              status_check_contexts:
+              - gl/check
+            default_branch: main
+            default_delete_branch_after_merge: true
+            default_merge_style: squash
+            description: "${{ parameters.repo_description }}"
+            has_issues: true
+            has_projects: false
+            has_wiki: false
+            homepage: null
+            teams:
+            - ${{ parameters.repo_rw_team }}
+
+    - id: gen-gitstyring-pull-request-gt
+      name: make a pr with the new config
+      if: ${{ parameters.connection === "gitea" }}
+      action: publish:gitea:pull-request
+      input:
+        repoUrl: "gitea.eco.tsi-dev.otc-service.com?repo=gitstyring&owner=infra"
+        branchName: "proj-${{ parameters.org_name }}-${{ parameters.repo_name }}"
+        title: "chore: register ${{ parameters.tenant }}:${{ parameters.org_name}}/${{ parameters.repo_name}}"
+        description: "Add ${{ parameters.org_name}}/${{ parameters.repo_name}} repository configuration"
+        sourcePath: "gitstyring-gt"
+
+    - id: log-results
+      name: Summary information
+      action: debug:log
+      input:
+        message: |
+          `Zuul Config PR: ${{ steps['gh-zuul-config-pull-request'].output.remoteUrl }}`
+
+  output:
+    zuul-config-pr: "${{ steps['gh-zuul-config-pull-request'].output.pullRequestNumber }}"
+    gitstyring-pr: "${{ steps['gen-gitstyring-pull-request-gh'].output.pullRequestNumber }}"

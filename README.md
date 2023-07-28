@@ -1,2 +1,3 @@
-# backstage-templates
-Templates for OTC Backstage
+# catalog-templates
+
+Backstage scaffolder templates
